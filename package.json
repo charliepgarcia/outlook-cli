@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "Griffin Long",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/griffinwork40/outlook-cli.git"
+  },
+  "homepage": "https://github.com/griffinwork40/outlook-cli#readme",
+  "bugs": {
+    "url": "https://github.com/griffinwork40/outlook-cli/issues"
+  },
   "keywords": [
     "outlook",
     "microsoft-graph",
