@@ -1,0 +1,47 @@
+{
+  "name": "outlook-cli",
+  "version": "1.0.0",
+  "description": "Lightweight CLI wrapper for the Microsoft Graph v1.0 Outlook Mail API",
+  "type": "module",
+  "license": "MIT",
+  "author": "Griffin Long",
+  "keywords": [
+    "outlook",
+    "microsoft-graph",
+    "graph-api",
+    "email",
+    "cli",
+    "oauth2",
+    "device-code"
+  ],
+  "bin": {
+    "outlook": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "files": [
+    "dist",
+    "README.md",
+    "SETUP.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "size": "bash scripts/check-file-size.sh",
+    "test": "bash scripts/check-file-size.sh && vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
