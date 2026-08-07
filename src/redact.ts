@@ -49,7 +49,10 @@ export function redactObject<T>(input: T): T {
 }
 
 function walk(value: unknown, depth: number): unknown {
-  if (depth > 12) return value;
+  // Past the cap this must mask, not pass through: returning `value` here let
+  // a secret nested one level deeper than the cap print raw, defeating the
+  // one guarantee this module exists to make.
+  if (depth > 12) return MASK;
 
   if (typeof value === 'string') return redactText(value);
   if (value === null || typeof value !== 'object') return value;

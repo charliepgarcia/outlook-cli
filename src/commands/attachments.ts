@@ -37,7 +37,7 @@
  */
 
 import { access, mkdir, writeFile } from 'node:fs/promises';
-import { basename, isAbsolute, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { emit, type CommandContext, type CommandSpec } from '../command.js';
 import { UsageError } from '../errors.js';
 import { renderAttachments } from '../output.js';
@@ -103,10 +103,57 @@ function safeDestination(outDir: string, attachment: Attachment): string {
   const name = sanitizeFilename(base, fallback);
   const dest = resolve(outDir, name);
   const rel = relative(outDir, dest);
-  if (rel.startsWith('..') || isAbsolute(rel)) {
+  // `rel.startsWith('..')` alone also rejects a legitimate `..gitignore`,
+  // whose relative path merely begins with those two characters. Escape means
+  // the whole first segment is `..`, so match the separator too.
+  if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
     throw new UsageError(`Refusing to write outside --out directory: "${attachment.name}"`);
   }
   return dest;
+}
+
+/**
+ * Allocate one destination per attachment, in order, with no two alike.
+ *
+ * `sanitizeFilename` is deliberately many-to-one — `a:b.txt` and `a?b.txt`
+ * both land on `a_b.txt` — and Outlook routinely puts two attachments named
+ * `image001.png` on a single message. Resolving each attachment independently
+ * therefore aimed two downloads at one path: with --force the second write
+ * clobbered the first while the results array still reported both as written
+ * to their own file, and without it the batch aborted halfway through.
+ *
+ * Allocating here, once, is also what keeps --dry-run honest: the plan and the
+ * real run consume the same allocator, so they cannot disagree about where a
+ * file lands.
+ */
+function allocateDestinations(outDir: string, attachments: readonly Attachment[]): string[] {
+  const claimed = new Set<string>();
+  return attachments.map((attachment) => claim(safeDestination(outDir, attachment), claimed));
+}
+
+function claim(dest: string, claimed: Set<string>): string {
+  // macOS and Windows treat `A.txt` and `a.txt` as one file, so uniqueness has
+  // to be decided case-insensitively or the collision survives on those hosts.
+  const key = (p: string): string => p.toLowerCase();
+  if (!claimed.has(key(dest))) {
+    claimed.add(key(dest));
+    return dest;
+  }
+
+  const dir = dirname(dest);
+  const base = basename(dest);
+  const dot = base.lastIndexOf('.');
+  // `dot > 0` keeps a dotfile whole: `.gitignore` is all stem, no extension.
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : '';
+
+  for (let n = 2; ; n++) {
+    const candidate = join(dir, `${stem} (${n})${ext}`);
+    if (!claimed.has(key(candidate))) {
+      claimed.add(key(candidate));
+      return candidate;
+    }
+  }
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -161,11 +208,15 @@ async function downloadHandler(ctx: CommandContext): Promise<void> {
   // the wrong tool (it wraps a *Graph* RequestSpec, and the only Graph call
   // here is the read that got us `targets`), so the check is explicit — but
   // it must still come BEFORE mkdir, or a dry run leaves a directory behind.
+  // One allocation shared by both branches below, so the dry-run plan names
+  // exactly the paths a real run would write.
+  const destinations = allocateDestinations(outDir, targets);
+
   if (ctx.dryRun) {
-    const planned = targets.map((a) => ({
+    const planned = targets.map((a, i) => ({
       id: a.id,
       name: a.name,
-      path: safeDestination(outDir, a),
+      path: destinations[i] as string,
     }));
     emit(ctx, { dryRun: true, wouldWrite: planned }, () =>
       [
@@ -182,9 +233,8 @@ async function downloadHandler(ctx: CommandContext): Promise<void> {
   await mkdir(outDir, { recursive: true });
 
   const results: DownloadResult[] = [];
-  for (const attachment of targets) {
-    const dest = safeDestination(outDir, attachment);
-    results.push(await downloadOne(dest, attachment, force));
+  for (const [i, attachment] of targets.entries()) {
+    results.push(await downloadOne(destinations[i] as string, attachment, force));
   }
 
   emit(ctx, results, () =>

@@ -7,7 +7,7 @@
  * double-send a real email. This client NEVER auto-retries POST.
  */
 
-import { GRAPH_BASE, type RequestSpec } from './types.js';
+import { GRAPH_BASE, REQUEST_TIMEOUT_MS, type RequestSpec } from './types.js';
 import { OutlookCliError, parseGraphError } from './errors.js';
 
 /**
@@ -44,8 +44,6 @@ const DEFAULT_MAX_RETRIES = 4;
 const BASE_BACKOFF_MS = 500;
 const MAX_BACKOFF_MS = 30_000;
 const ABSOLUTE_URL_RE = /^https?:\/\//i;
-/** Hard ceiling on a single HTTP attempt. Without it a hung socket hangs the CLI. */
-const REQUEST_TIMEOUT_MS = 60_000;
 
 export class GraphClient {
   private readonly getToken: () => Promise<string>;

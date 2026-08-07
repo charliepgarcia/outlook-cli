@@ -36,6 +36,15 @@ describe('tokenStore', () => {
     await expect(store.load()).resolves.toEqual(sampleTokens);
   });
 
+  it('save() creates the parent directory owner-only (0700), not world-readable', async () => {
+    // The file is already 0600; this stops the directory from advertising that
+    // a token cache exists and when it was last written.
+    const path = join(dir, 'fresh', 'token.json');
+    await createTokenStore(path).save(sampleTokens);
+    const st = await stat(join(dir, 'fresh'));
+    expect(st.mode & 0o777).toBe(0o700);
+  });
+
   it('save() creates the parent directory when missing (mkdir -p)', async () => {
     const path = join(dir, 'deeply', 'nested', 'dir', 'token.json');
     const store = createTokenStore(path);

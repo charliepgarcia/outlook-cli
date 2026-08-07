@@ -217,6 +217,18 @@ export interface OutlookConfig {
 
 export const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
+/**
+ * Hard ceiling on a single HTTP attempt, shared by every outbound call —
+ * Graph requests and the identity-platform credential exchanges alike. Without
+ * it a hung socket hangs the CLI indefinitely, which for the unattended agent
+ * this tool is built for is a stall with no operator present to notice it.
+ *
+ * Per ATTEMPT, never per operation: the device-code poll legitimately runs for
+ * the lifetime of the code, so each of its requests gets its own fresh timeout
+ * rather than one deadline around the loop.
+ */
+export const REQUEST_TIMEOUT_MS = 60_000;
+
 export const DEFAULT_SCOPES = [
   'offline_access',
   'User.Read',

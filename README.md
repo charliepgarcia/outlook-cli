@@ -83,10 +83,16 @@ deletion.
 
 **6. Least privilege is available.** `outlook auth login --readonly` requests
 `Mail.Read` instead of `Mail.ReadWrite` and drops `Mail.Send` entirely, so the
-stored refresh token cannot send, delete, or modify mail even if it leaks. The
+**access** token this session carries cannot send, delete, or modify mail. The
 mode is recorded with the token and survives refreshes, and any mutating
 command fails fast against a read-only session. Recommended whenever an agent
 only needs to read.
+
+It narrows the blast radius; it is not a substitute for protecting the token
+file. The local read-only gate reads `mode` from that same file, and the cached
+refresh token is only as narrow as the consent your tenant has already recorded
+for this client — so someone holding the file can edit the mode back. Treat
+`--readonly` as reducing what a leaked token is worth, not as sealing it.
 
 ```bash
 outlook auth login --readonly
@@ -115,7 +121,7 @@ for the full audit and the two items deliberately left open.
 | Command | Purpose |
 |---|---|
 | `outlook me` | Your profile and primary address |
-| `outlook list [--folder <name\|id>] [--unread-only] [--top N] [--filter <odata>] [--orderby <expr>] [--select <fields>] [--all] [--limit N]` | List messages |
+| `outlook list [--folder <name\|id>] [--unread] [--all] [--limit N]` | List messages |
 | `outlook get <messageId> [--html]` | Full message, plain text by default |
 | `outlook search <kql> [--folder <name\|id>] [--limit N]` | KQL search across the mailbox |
 | `outlook folders list` | Mail folders with unread/total counts |
@@ -154,14 +160,20 @@ Drafts are the safest way to send: compose, inspect, then send as a separate act
 | `outlook move <messageId> --folder <name\|id>` | Move to a folder |
 | `outlook mark-read <messageId>` / `mark-unread` | Set read state |
 | `outlook flag <messageId>` / `unflag` | Set follow-up flag |
-| `outlook folders create <displayName> [--parent <id>]` | Create a folder |
+| `outlook folders create --name <text>` | Create a folder (Graph creates at root only) |
 
 ### Global flags
 | Flag | Effect |
 |---|---|
 | `--json` | Machine-readable output on every command |
 | `--dry-run` | Render the request, send nothing (mutating commands) |
-| `--all` / `--limit N` | Follow pagination to exhaustion / stop after N |
+| `--help` / `-h` | Usage for the command |
+
+Pagination flags are **not** global — each command declares its own flags and
+rejects anything else (see "Unknown flags fail closed" above). `--all` is
+accepted by `list`, `search`, `folders`, `draft`, and `attachments`; `--limit N`
+by `list`, `search`, and `draft`. The authoritative list is `COMMAND_FLAGS` in
+[`src/flagSpec.ts`](./src/flagSpec.ts), and `outlook <command> --help` prints it.
 
 ---
 

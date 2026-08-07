@@ -12,6 +12,7 @@
 import { authorityBase } from './config.js';
 import { NotAuthenticatedError, OutlookCliError, parseGraphError } from './errors.js';
 import { requestDeviceCode, pollForToken } from './deviceCode.js';
+import { postForm } from './identityFetch.js';
 import type { TokenStore } from './tokenStore.js';
 import type {
   DeviceCodeResponse,
@@ -24,8 +25,6 @@ import { scopesForMode } from './types.js';
 
 /** getAccessToken refreshes proactively once the token is this close to expiry. */
 const REFRESH_SKEW_MS = 60_000;
-
-const FORM_HEADERS = { 'Content-Type': 'application/x-www-form-urlencoded' };
 
 export interface AuthStatus {
   signedIn: boolean;
@@ -161,11 +160,7 @@ async function exchangeRefreshToken(
     scope: scopesForMode(mode).join(' '),
   });
 
-  const res = await fetchImpl(url, {
-    method: 'POST',
-    headers: FORM_HEADERS,
-    body: params.toString(),
-  });
+  const res = await postForm(url, params, fetchImpl);
   const bodyText = await res.text().catch(() => '');
 
   if (!res.ok) {

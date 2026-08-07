@@ -9,6 +9,7 @@
 
 import { authorityBase } from './config.js';
 import { OutlookCliError, parseGraphError } from './errors.js';
+import { postForm } from './identityFetch.js';
 import type { DeviceCodeResponse, OutlookConfig, TokenResponse } from './types.js';
 
 /**
@@ -25,8 +26,6 @@ const DEFAULT_POLL_INTERVAL_SEC = 5;
 /** docs/00 §3 + §9.1: on `slow_down`, permanently add 5s to the interval. */
 const SLOW_DOWN_INCREMENT_MS = 5_000;
 
-const FORM_HEADERS = { 'Content-Type': 'application/x-www-form-urlencoded' };
-
 export async function requestDeviceCode(
   cfg: OutlookConfig,
   scopes: readonly string[],
@@ -38,11 +37,7 @@ export async function requestDeviceCode(
     scope: scopes.join(' '),
   });
 
-  const res = await fetchImpl(url, {
-    method: 'POST',
-    headers: FORM_HEADERS,
-    body: params.toString(),
-  });
+  const res = await postForm(url, params, fetchImpl);
   const bodyText = await res.text().catch(() => '');
 
   if (!res.ok) {
@@ -92,11 +87,7 @@ export async function pollForToken(
   let elapsedMs = 0;
 
   for (;;) {
-    const res = await fetchImpl(url, {
-      method: 'POST',
-      headers: FORM_HEADERS,
-      body: params.toString(),
-    });
+    const res = await postForm(url, params, fetchImpl);
     const bodyText = await res.text().catch(() => '');
 
     if (res.ok) {

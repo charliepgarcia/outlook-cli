@@ -5,12 +5,20 @@
  * returns `null` rather than throwing.
  */
 
+import { randomBytes } from 'node:crypto';
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { TokenSet } from './types.js';
 
 /** Owner read/write only — the file holds an access + refresh token. */
 const FILE_MODE = 0o600;
+
+/**
+ * Owner-only on the containing directory too. The file itself is already 0600,
+ * so this is not what protects the secret — it stops a world-readable directory
+ * from advertising that a token cache exists and when it was last written.
+ */
+const DIR_MODE = 0o700;
 
 /**
  * chmod cannot express "owner only" through the Win32 ACL model, so on Windows
@@ -53,21 +61,34 @@ export function createTokenStore(path: string): TokenStore {
      *
      * The temp file carries the restrictive mode from creation, so the secret
      * is never briefly world-readable in the window before chmod lands.
+     *
+     * The temp NAME is random and the open is exclusive. The previous
+     * `.${pid}-${Date.now()}.token.tmp` was guessable, and writeFile's default
+     * O_CREAT|O_TRUNC follows a symlink — so a link pre-planted at that path
+     * would have received the token at whatever destination it pointed to.
+     * 'wx' (O_CREAT|O_EXCL) refuses to open anything that already exists.
      */
     async save(tokens: TokenSet): Promise<void> {
       const dir = dirname(path);
-      await mkdir(dir, { recursive: true });
+      await mkdir(dir, { recursive: true, mode: DIR_MODE });
 
-      const tmp = join(dir, `.${process.pid}-${Date.now()}.token.tmp`);
+      const tmp = join(dir, `.${randomBytes(8).toString('hex')}.token.tmp`);
       try {
-        await writeFile(tmp, JSON.stringify(tokens, null, 2), { mode: FILE_MODE });
+        await writeFile(tmp, JSON.stringify(tokens, null, 2), {
+          mode: FILE_MODE,
+          flag: 'wx',
+        });
         // `mode` on writeFile only applies at creation; chmod makes it
-        // explicit and also covers a pre-existing temp path. On Windows both
-        // are advisory — see FILE_MODE_IS_ENFORCED.
+        // explicit. On Windows both are advisory — see FILE_MODE_IS_ENFORCED.
         await chmod(tmp, FILE_MODE);
         await rename(tmp, path);
       } catch (error) {
-        await rm(tmp, { force: true }).catch(() => undefined);
+        // EEXIST means the path was already occupied by something this
+        // function did not create. Removing it would be deleting a stranger's
+        // file on the way out of a failure — leave it alone.
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          await rm(tmp, { force: true }).catch(() => undefined);
+        }
         throw error;
       }
     },
