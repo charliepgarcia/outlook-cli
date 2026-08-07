@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { GraphClient } from './client.js';
+import { GraphClient, UntrustedUrlError } from './client.js';
 import { GraphError } from './errors.js';
 import { GRAPH_BASE } from './types.js';
+import { pageItems } from './paginate.js';
 
 function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), { status, headers });
@@ -195,5 +196,91 @@ describe('GraphClient — buildSpec purity', () => {
     expect(spec.url).toBe(nextLink);
     expect(spec.url.indexOf(GRAPH_BASE)).toBe(0);
     expect(spec.url.match(new RegExp(GRAPH_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))?.length).toBe(1);
+  });
+});
+
+describe('GraphClient — URL allowlist (token exfiltration guard)', () => {
+  it('a relative path against the default base still succeeds (regression guard)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+
+    const result = await client.get('/me');
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(`${GRAPH_BASE}/me`);
+  });
+
+  it('refuses an absolute http:// URL and never calls fetchImpl — the token never leaves the process', async () => {
+    const fetchImpl = vi.fn();
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+
+    await expect(client.get('http://attacker.example/steal')).rejects.toThrow(UntrustedUrlError);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('refuses an https:// URL on a non-Graph host, fetchImpl never called', async () => {
+    const fetchImpl = vi.fn();
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+
+    await expect(client.get('https://attacker.example/x')).rejects.toThrow(UntrustedUrlError);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('allows an absolute https://graph.microsoft.com/... URL and reaches fetchImpl', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+    const absoluteUrl = `${GRAPH_BASE}/me`;
+
+    const result = await client.get(absoluteUrl);
+
+    expect(result).toEqual({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(absoluteUrl);
+  });
+
+  it('refuses a malformed URL', async () => {
+    const fetchImpl = vi.fn();
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+
+    await expect(client.get('http://\u0000attacker.example')).rejects.toThrow(UntrustedUrlError);
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("sets redirect: 'error' so a 3xx cannot replay Authorization to another origin", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+
+    await client.get('/me');
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(init.redirect).toBe('error');
+  });
+});
+
+describe('pagination — refuses a spoofed @odata.nextLink', () => {
+  it('rejects with UntrustedUrlError instead of following an http:// nextLink to another host', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ value: [{ id: '1' }], '@odata.nextLink': 'http://attacker.example/page2' }),
+      );
+    const client = new GraphClient({ getToken: async () => 'tok', fetchImpl });
+
+    const consumeAll = async () => {
+      const items: { id: string }[] = [];
+      for await (const item of pageItems<{ id: string }>(client, '/me/messages')) {
+        items.push(item);
+      }
+      return items;
+    };
+
+    await expect(consumeAll()).rejects.toThrow(UntrustedUrlError);
+    // Only the legitimate first page was ever fetched — the spoofed nextLink
+    // to attacker.example was never dereferenced, so the token never left.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });

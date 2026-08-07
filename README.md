@@ -29,7 +29,7 @@ only step that cannot be automated, and it takes about three minutes.
 
 ## Safety model
 
-Email is irreversible and reaches other people. Three deliberate guardrails:
+Email is irreversible and reaches other people. Six deliberate guardrails:
 
 **1. `--dry-run` on every mutating command.** Prints the exact HTTP request that
 would be issued, then exits without touching the network. The short-circuit
@@ -60,6 +60,44 @@ is exposed separately as `outlook purge` and refuses to run without `--yes`.
 draft-send carry no idempotency guarantee — an automatic retry after a network
 timeout can deliver the message twice. The HTTP layer retries idempotent verbs
 (GET/DELETE/PATCH) on throttling, and deliberately does not retry POST.
+
+**4. Unknown flags are rejected, not ignored.** A misspelled flag is a hard
+error before anything runs. This matters more than it sounds: with a
+permissive parser, `--dryrun` is silently ignored, `dryRun` stays false, and
+"show me what would be sent" becomes "send it now." Every command declares its
+accepted flags in `src/flagSpec.ts`, and a test asserts no command can be
+registered without an entry.
+
+```bash
+outlook send --to a@example.com --subject "Test" --body "Hi" --dryrun
+```
+```
+Unknown flag for 'send': --dryrun
+Did you mean --dry-run?
+```
+
+**5. Confirmation flags cannot be faked.** `--yes` accepts only explicit
+boolean spellings. `--yes=false`, `--yes=0` and `--no-yes` all mean *no* — a
+user typing `--yes=false` to decline a permanent delete gets a refusal, not a
+deletion.
+
+**6. Least privilege is available.** `outlook auth login --readonly` requests
+`Mail.Read` instead of `Mail.ReadWrite` and drops `Mail.Send` entirely, so the
+stored refresh token cannot send, delete, or modify mail even if it leaks. The
+mode is recorded with the token and survives refreshes, and any mutating
+command fails fast against a read-only session. Recommended whenever an agent
+only needs to read.
+
+```bash
+outlook auth login --readonly
+outlook send --to a@example.com --subject S --body B
+# This session was signed in with --readonly, so it cannot POST .../sendMail.
+```
+
+Credentialed requests are additionally pinned to HTTPS on the Graph host, so a
+malformed or hostile `@odata.nextLink` cannot redirect your bearer token to
+another server. See [docs/security-review-2026-08-07.md](./docs/security-review-2026-08-07.md)
+for the full audit and the two items deliberately left open.
 
 ---
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createTokenStore } from './tokenStore.js';
@@ -105,5 +105,126 @@ describe('tokenStore', () => {
   it('exposes the configured path', () => {
     const path = join(dir, 'token.json');
     expect(createTokenStore(path).path).toBe(path);
+  });
+});
+
+/**
+ * Security fix regression coverage (docs/security-review-2026-08-07.md #4):
+ * `save()` now writes to a `.{pid}-{ts}.token.tmp` sibling and renames it over
+ * the target, so a process death mid-write can never leave a truncated or
+ * half-merged cache behind.
+ */
+describe('tokenStore — atomic save', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'outlook-cli-test-atomic-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const sampleTokens: TokenSet = {
+    accessToken: 'access-abc',
+    refreshToken: 'refresh-xyz',
+    expiresAt: 1_700_000_000_000,
+    scope: 'User.Read Mail.Send',
+    tokenType: 'Bearer',
+    account: 'user@example.com',
+  };
+
+  it('leaves no leftover .token.tmp file after save()', async () => {
+    const path = join(dir, 'token.json');
+    await createTokenStore(path).save(sampleTokens);
+
+    expect(await readdir(dir)).toEqual(['token.json']);
+  });
+
+  it('saving over an existing token file replaces it completely, not a merge', async () => {
+    const path = join(dir, 'token.json');
+    const store = createTokenStore(path);
+    await store.save({
+      accessToken: 'first',
+      expiresAt: 1,
+      refreshToken: 'r1',
+      scope: 'a b c',
+      tokenType: 'Bearer',
+      account: 'first@example.com',
+    });
+
+    const replacement: TokenSet = { accessToken: 'second', expiresAt: 2 };
+    await store.save(replacement);
+
+    await expect(store.load()).resolves.toEqual(replacement);
+    expect(await readdir(dir)).toEqual(['token.json']);
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'the renamed-into-place file is still chmod 0600 (POSIX only)',
+    async () => {
+      const path = join(dir, 'token.json');
+      await createTokenStore(path).save(sampleTokens);
+
+      const st = await stat(path);
+      expect(st.mode & 0o777).toBe(0o600);
+    },
+  );
+});
+
+/**
+ * `mode` field coverage (docs/security-review-2026-08-07.md #3): a corrupt or
+ * unrecognized `mode` must be REJECTED by load(), not defaulted to 'full' —
+ * silently upgrading an unreadable mode to full access would be a privilege
+ * escalation on a corrupt cache.
+ */
+describe('tokenStore — mode field', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'outlook-cli-test-mode-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('save() then load() round-trips mode: "readonly"', async () => {
+    const path = join(dir, 'token.json');
+    const tokens: TokenSet = { accessToken: 'a', expiresAt: 1, mode: 'readonly' };
+    const store = createTokenStore(path);
+
+    await store.save(tokens);
+
+    await expect(store.load()).resolves.toEqual(tokens);
+  });
+
+  it('save() then load() round-trips mode: "full"', async () => {
+    const path = join(dir, 'token.json');
+    const tokens: TokenSet = { accessToken: 'a', expiresAt: 1, mode: 'full' };
+    const store = createTokenStore(path);
+
+    await store.save(tokens);
+
+    await expect(store.load()).resolves.toEqual(tokens);
+  });
+
+  it('load() rejects an unrecognized mode string instead of defaulting it to "full"', async () => {
+    const path = join(dir, 'token.json');
+    await writeFile(
+      path,
+      JSON.stringify({ accessToken: 'a', expiresAt: 123, mode: 'admin' }),
+      { mode: 0o600 },
+    );
+
+    await expect(createTokenStore(path).load()).resolves.toBeNull();
+  });
+
+  it('load() accepts a cache with no mode field at all (pre-read-only-mode tokens)', async () => {
+    const path = join(dir, 'token.json');
+    const legacy = { accessToken: 'a', expiresAt: 123 };
+    await writeFile(path, JSON.stringify(legacy), { mode: 0o600 });
+
+    await expect(createTokenStore(path).load()).resolves.toEqual(legacy);
   });
 });

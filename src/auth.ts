@@ -13,8 +13,14 @@ import { authorityBase } from './config.js';
 import { NotAuthenticatedError, OutlookCliError, parseGraphError } from './errors.js';
 import { requestDeviceCode, pollForToken } from './deviceCode.js';
 import type { TokenStore } from './tokenStore.js';
-import type { DeviceCodeResponse, OutlookConfig, TokenResponse, TokenSet } from './types.js';
-import { DEFAULT_SCOPES } from './types.js';
+import type {
+  DeviceCodeResponse,
+  GrantMode,
+  OutlookConfig,
+  TokenResponse,
+  TokenSet,
+} from './types.js';
+import { scopesForMode } from './types.js';
 
 /** getAccessToken refreshes proactively once the token is this close to expiry. */
 const REFRESH_SKEW_MS = 60_000;
@@ -27,11 +33,21 @@ export interface AuthStatus {
   expiresAt?: number;
   expired: boolean;
   scopes?: string;
+  /** Absent on a pre-existing token issued before read-only mode existed. */
+  mode?: GrantMode;
+}
+
+export interface LoginOptions {
+  /** Request the reduced scope set — cannot send, delete, or modify mail. */
+  readOnly?: boolean;
 }
 
 export interface Authenticator {
   getAccessToken(): Promise<string>;
-  login(onPrompt: (d: DeviceCodeResponse) => void): Promise<TokenSet>;
+  login(
+    onPrompt: (d: DeviceCodeResponse) => void,
+    opts?: LoginOptions,
+  ): Promise<TokenSet>;
   logout(): Promise<void>;
   refresh(): Promise<TokenSet>;
   status(): Promise<AuthStatus>;
@@ -60,7 +76,17 @@ export function createAuthenticator(
       throw new NotAuthenticatedError('cached session has no refresh token; run login again');
     }
 
-    const tokenResponse = await exchangeRefreshToken(cfg, cached.refreshToken, fetchImpl);
+    // Refresh with the scope set this grant was ORIGINALLY obtained under.
+    // Hardcoding DEFAULT_SCOPES here would ask Azure to upgrade a read-only
+    // session to full read/write on its next refresh, silently undoing the
+    // least-privilege choice the user made at login.
+    const mode = cached.mode ?? 'full';
+    const tokenResponse = await exchangeRefreshToken(
+      cfg,
+      cached.refreshToken,
+      mode,
+      fetchImpl,
+    );
     const nextTokens = toTokenSet(tokenResponse, now(), cached);
     await store.save(nextTokens);
     return nextTokens;
@@ -78,8 +104,12 @@ export function createAuthenticator(
       return cached.accessToken;
     },
 
-    async login(onPrompt: (d: DeviceCodeResponse) => void): Promise<TokenSet> {
-      const deviceCode = await requestDeviceCode(cfg, DEFAULT_SCOPES, fetchImpl);
+    async login(
+      onPrompt: (d: DeviceCodeResponse) => void,
+      opts: LoginOptions = {},
+    ): Promise<TokenSet> {
+      const mode: GrantMode = opts.readOnly ? 'readonly' : 'full';
+      const deviceCode = await requestDeviceCode(cfg, scopesForMode(mode), fetchImpl);
       onPrompt(deviceCode);
 
       const tokenResponse = await pollForToken(cfg, deviceCode.device_code, {
@@ -89,7 +119,7 @@ export function createAuthenticator(
         sleep,
       });
 
-      const tokens = toTokenSet(tokenResponse, now());
+      const tokens = { ...toTokenSet(tokenResponse, now()), mode };
       await store.save(tokens);
       return tokens;
     },
@@ -110,6 +140,7 @@ export function createAuthenticator(
         expiresAt: cached.expiresAt,
         ...(cached.account !== undefined ? { account: cached.account } : {}),
         ...(cached.scope !== undefined ? { scopes: cached.scope } : {}),
+        ...(cached.mode !== undefined ? { mode: cached.mode } : {}),
       };
     },
   };
@@ -119,6 +150,7 @@ export function createAuthenticator(
 async function exchangeRefreshToken(
   cfg: OutlookConfig,
   refreshToken: string,
+  mode: GrantMode,
   fetchImpl: typeof fetch,
 ): Promise<TokenResponse> {
   const url = `${authorityBase(cfg.tenantId)}/token`;
@@ -126,7 +158,7 @@ async function exchangeRefreshToken(
     grant_type: 'refresh_token',
     client_id: cfg.clientId,
     refresh_token: refreshToken,
-    scope: DEFAULT_SCOPES.join(' '),
+    scope: scopesForMode(mode).join(' '),
   });
 
   const res = await fetchImpl(url, {
@@ -173,6 +205,12 @@ function toTokenSet(
   const refreshToken = tokenResponse.refresh_token ?? previous?.refreshToken;
   const scope = tokenResponse.scope ?? previous?.scope;
   const tokenType = tokenResponse.token_type ?? previous?.tokenType;
+  // The grant mode is OURS, not Azure's — the token response never echoes it,
+  // so it can only survive a refresh by being carried forward here. Dropping
+  // it would silently re-escalate: the next refresh would read `mode ?? 'full'`
+  // and ask for the full scope set, and guardMutation's read-only gate would
+  // stop firing. A --readonly session must stay read-only across refreshes.
+  const mode = previous?.mode;
 
   return {
     accessToken: tokenResponse.access_token,
@@ -181,6 +219,7 @@ function toTokenSet(
     ...(scope !== undefined ? { scope } : {}),
     ...(tokenType !== undefined ? { tokenType } : {}),
     ...(account !== undefined ? { account } : {}),
+    ...(mode !== undefined ? { mode } : {}),
   };
 }
 

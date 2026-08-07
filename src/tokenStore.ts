@@ -5,12 +5,20 @@
  * returns `null` rather than throwing.
  */
 
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { TokenSet } from './types.js';
 
 /** Owner read/write only — the file holds an access + refresh token. */
 const FILE_MODE = 0o600;
+
+/**
+ * chmod cannot express "owner only" through the Win32 ACL model, so on Windows
+ * the 0600 above is decorative and the token file inherits directory
+ * permissions. Callers are told once, loudly, rather than being left with a
+ * false sense of protection. See docs/security-review-2026-08-07.md (#4).
+ */
+export const FILE_MODE_IS_ENFORCED = process.platform !== 'win32';
 
 export interface TokenStore {
   readonly path: string;
@@ -35,13 +43,33 @@ export function createTokenStore(path: string): TokenStore {
       }
     },
 
+    /**
+     * Atomic: write a fresh temp file, lock it down, then rename over the
+     * target. rename(2) is atomic within a directory, so a reader either sees
+     * the whole old token set or the whole new one — never a half-written
+     * file. The previous in-place writeFile could leave a truncated cache
+     * behind if the process died mid-write, or interleave two concurrent
+     * refreshes into corrupt JSON, either of which forces a re-login.
+     *
+     * The temp file carries the restrictive mode from creation, so the secret
+     * is never briefly world-readable in the window before chmod lands.
+     */
     async save(tokens: TokenSet): Promise<void> {
-      await mkdir(dirname(path), { recursive: true });
-      // `mode` on writeFile only takes effect when the file is *created*;
-      // if it already exists with looser permissions, writeFile leaves them
-      // alone. The explicit chmod is what actually guarantees 0600 either way.
-      await writeFile(path, JSON.stringify(tokens, null, 2), { mode: FILE_MODE });
-      await chmod(path, FILE_MODE);
+      const dir = dirname(path);
+      await mkdir(dir, { recursive: true });
+
+      const tmp = join(dir, `.${process.pid}-${Date.now()}.token.tmp`);
+      try {
+        await writeFile(tmp, JSON.stringify(tokens, null, 2), { mode: FILE_MODE });
+        // `mode` on writeFile only applies at creation; chmod makes it
+        // explicit and also covers a pre-existing temp path. On Windows both
+        // are advisory — see FILE_MODE_IS_ENFORCED.
+        await chmod(tmp, FILE_MODE);
+        await rename(tmp, path);
+      } catch (error) {
+        await rm(tmp, { force: true }).catch(() => undefined);
+        throw error;
+      }
     },
 
     async clear(): Promise<void> {
@@ -64,6 +92,11 @@ function isTokenSet(value: unknown): value is TokenSet {
   if (v['scope'] !== undefined && typeof v['scope'] !== 'string') return false;
   if (v['tokenType'] !== undefined && typeof v['tokenType'] !== 'string') return false;
   if (v['account'] !== undefined && typeof v['account'] !== 'string') return false;
+  // An unrecognized mode must not silently read as 'full' (that would be a
+  // privilege upgrade on a corrupt cache) — reject the whole cache instead.
+  if (v['mode'] !== undefined && v['mode'] !== 'readonly' && v['mode'] !== 'full') {
+    return false;
+  }
 
   return true;
 }

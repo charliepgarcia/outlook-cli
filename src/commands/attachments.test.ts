@@ -13,7 +13,7 @@
  * directory.
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -85,14 +85,26 @@ describe('attachments list', () => {
     expect(text(out)).toContain('notes.txt');
   });
 
-  it('--json emits the raw attachment array, unmodified', async () => {
+  it('--json emits attachment metadata but never the base64 contentBytes', async () => {
     const { ctx, client, out } = makeCtx(['list', 'msg-1', '--json']);
     const attachments = [sampleAttachment()];
     stubPages(client, { value: attachments });
 
     await attachmentsCommand.handler(ctx);
 
-    expect(JSON.parse(text(out))).toEqual(attachments);
+    const emitted = JSON.parse(text(out)) as Record<string, unknown>[];
+    // Every metadata field survives...
+    expect(emitted).toEqual([
+      expect.objectContaining({
+        id: 'AAMkAttachment1',
+        name: 'notes.txt',
+        contentType: 'text/plain',
+        size: 11,
+      }),
+    ]);
+    // ...but the payload itself must not reach stdout or an agent's logs.
+    expect(emitted[0]).not.toHaveProperty('contentBytes');
+    expect(text(out)).not.toContain('aGVsbG8gd29ybGQ=');
   });
 
   it('missing message id throws a clean UsageError via requirePositional', async () => {

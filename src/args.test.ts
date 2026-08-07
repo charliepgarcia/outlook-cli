@@ -203,3 +203,58 @@ describe('parseArgs — realistic composite command line', () => {
     expect(a.bool('save-sent')).toBe(false);
   });
 });
+
+describe('parseArgs — bool() strict boolean coercion', () => {
+  it('a bare --yes is true', () => {
+    const a = parseArgs(['--yes']);
+    expect(a.bool('yes')).toBe(true);
+  });
+
+  it('--no-yes is false', () => {
+    const a = parseArgs(['--no-yes']);
+    expect(a.bool('yes')).toBe(false);
+  });
+
+  it('THE CRITICAL ONE: --yes=false is false — this previously returned true and permanently deleted mail', () => {
+    const a = parseArgs(['--yes=false']);
+    expect(a.bool('yes')).toBe(false);
+  });
+
+  it.each(['0', 'no', 'off', ''])('--yes=%s is false', (value) => {
+    const a = parseArgs([`--yes=${value}`]);
+    expect(a.bool('yes')).toBe(false);
+  });
+
+  it.each(['true', '1', 'yes', 'on'])('--yes=%s is true', (value) => {
+    const a = parseArgs([`--yes=${value}`]);
+    expect(a.bool('yes')).toBe(true);
+  });
+
+  it('is case-insensitive: --yes=FALSE is false', () => {
+    const a = parseArgs(['--yes=FALSE']);
+    expect(a.bool('yes')).toBe(false);
+  });
+
+  it('trims surrounding whitespace: --yes= true  is true', () => {
+    const a = parseArgs(['--yes= true ']);
+    expect(a.bool('yes')).toBe(true);
+  });
+
+  it('throws UsageError on an ambiguous value, naming the value', () => {
+    const a = parseArgs(['--json', 'inbox']);
+    expect(() => a.bool('json')).toThrow(UsageError);
+    expect(() => a.bool('json')).toThrow(/inbox/);
+  });
+});
+
+describe('parseArgs — names()', () => {
+  it('returns every flag name seen on the command line', () => {
+    const a = parseArgs(['--json', '--top', '5', '--no-color']);
+    expect(a.names().sort()).toEqual(['color', 'json', 'top']);
+  });
+
+  it('returns an empty array for a positional-only argv', () => {
+    const a = parseArgs(['list', 'inbox']);
+    expect(a.names()).toEqual([]);
+  });
+});
