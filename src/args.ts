@@ -1,19 +1,10 @@
 /**
  * Dependency-free argv parser.
  *
- * Convention (no schema is passed in, so this is deliberately simple and
- * documented rather than "smart"): a bare `--flag` greedily consumes the
- * following token as its string value UNLESS that token looks like another
- * flag (starts with `-`, length > 1) or is the `--` terminator. This means a
- * boolean-style flag immediately followed by a positional the caller wants
- * kept separate (e.g. `outlook list --json inbox`) will swallow "inbox" as
- * `--json`'s value rather than leaving it positional. `.bool()` still comes
- * back `true` in that case (presence-based), but the positional is lost.
- * Callers should order positionals before trailing boolean flags (the usual
- * CLI convention: `outlook list inbox --json`) or use `--` to force a hard
- * boundary. This tradeoff is inherent to schema-less argv parsing (the same
- * ambiguity minimist has) and is called out here rather than silently
- * assumed.
+ * Production callers provide an OptionSchema. In that mode unknown options are
+ * rejected, value-taking options require a value, and booleans accept only a
+ * bare flag, `--no-flag`, or an explicit `true`/`false` value. Without a schema
+ * the original permissive parsing behavior is retained for low-level callers.
  */
 
 import { UsageError } from './errors.js';
@@ -32,6 +23,12 @@ export interface ParsedArgs {
 
 type FlagValue = string | boolean;
 
+export interface OptionSchema {
+  boolean: readonly string[];
+  value: readonly string[];
+  aliases?: Readonly<Record<string, string>>;
+}
+
 /** `-` alone is treated as a value (common "stdin" convention), not a flag. */
 function looksLikeOption(tok: string | undefined): boolean {
   if (tok === undefined) return false;
@@ -39,9 +36,27 @@ function looksLikeOption(tok: string | undefined): boolean {
   return tok.startsWith('-') && tok.length > 1;
 }
 
-export function parseArgs(argv: string[]): ParsedArgs {
+export function parseArgs(argv: string[], schema?: OptionSchema): ParsedArgs {
   const positionals: string[] = [];
   const store = new Map<string, FlagValue[]>();
+  const booleanOptions = new Set(schema?.boolean ?? []);
+  const valueOptions = new Set(schema?.value ?? []);
+
+  function option(
+    rawName: string,
+    spelling: string,
+  ): { name: string; kind: 'boolean' | 'value' } {
+    const name = schema?.aliases?.[rawName] ?? rawName;
+    if (booleanOptions.has(name)) return { name, kind: 'boolean' };
+    if (valueOptions.has(name)) return { name, kind: 'value' };
+    throw new UsageError(`Unknown option: ${spelling}`);
+  }
+
+  function booleanValue(value: string, spelling: string): boolean {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw new UsageError(`${spelling} expects true or false`);
+  }
 
   function record(name: string, value: FlagValue): void {
     const existing = store.get(name);
@@ -73,14 +88,57 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const eq = body.indexOf('=');
 
       if (eq !== -1) {
-        record(body.slice(0, eq), body.slice(eq + 1));
+        const rawName = body.slice(0, eq);
+        const value = body.slice(eq + 1);
+        if (schema) {
+          const resolved = option(rawName, `--${rawName}`);
+          record(
+            resolved.name,
+            resolved.kind === 'boolean'
+              ? booleanValue(value, `--${rawName}`)
+              : value,
+          );
+        } else {
+          record(rawName, value);
+        }
         i++;
         continue;
       }
 
       if (body.startsWith('no-') && body.length > 3) {
-        record(body.slice(3), false);
+        const rawName = body.slice(3);
+        if (schema) {
+          const resolved = option(rawName, `--no-${rawName}`);
+          if (resolved.kind !== 'boolean') {
+            throw new UsageError(`Unknown option: --no-${rawName}`);
+          }
+          record(resolved.name, false);
+        } else {
+          record(rawName, false);
+        }
         i++;
+        continue;
+      }
+
+      if (schema) {
+        const resolved = option(body, `--${body}`);
+        const next = argv[i + 1];
+        if (resolved.kind === 'boolean') {
+          if (next === 'true' || next === 'false') {
+            record(resolved.name, booleanValue(next, `--${body}`));
+            i += 2;
+          } else {
+            record(resolved.name, true);
+            i++;
+          }
+          continue;
+        }
+
+        if (next === undefined || looksLikeOption(next)) {
+          throw new UsageError(`--${body} requires a value`);
+        }
+        record(resolved.name, next);
+        i += 2;
         continue;
       }
 
@@ -101,8 +159,42 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const eq = body.indexOf('=');
 
       if (eq !== -1) {
-        record(body.slice(0, eq), body.slice(eq + 1));
+        const rawName = body.slice(0, eq);
+        const value = body.slice(eq + 1);
+        if (schema) {
+          const resolved = option(rawName, `-${rawName}`);
+          record(
+            resolved.name,
+            resolved.kind === 'boolean'
+              ? booleanValue(value, `-${rawName}`)
+              : value,
+          );
+        } else {
+          record(rawName, value);
+        }
         i++;
+        continue;
+      }
+
+      if (schema) {
+        const resolved = option(body, `-${body}`);
+        const next = argv[i + 1];
+        if (resolved.kind === 'boolean') {
+          if (next === 'true' || next === 'false') {
+            record(resolved.name, booleanValue(next, `-${body}`));
+            i += 2;
+          } else {
+            record(resolved.name, true);
+            i++;
+          }
+          continue;
+        }
+
+        if (next === undefined || looksLikeOption(next)) {
+          throw new UsageError(`-${body} requires a value`);
+        }
+        record(resolved.name, next);
+        i += 2;
         continue;
       }
 

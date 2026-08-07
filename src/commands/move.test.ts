@@ -103,6 +103,17 @@ describe('purge (raw DELETE, requires --yes)', () => {
     expect(del).toHaveBeenCalledTimes(0);
   });
 
+  it.each([
+    { label: '--yes=false', argv: ['--yes=false'] },
+    { label: '--yes false', argv: ['--yes', 'false'] },
+  ])('$label does not authorize purge', async ({ argv }) => {
+    const { ctx, client } = makeCtx(['MSG1', ...argv], 'purge');
+    const del = vi.spyOn(client, 'del');
+
+    await expect(purgeCommand.handler(ctx)).rejects.toBeInstanceOf(UsageError);
+    expect(del).toHaveBeenCalledTimes(0);
+  });
+
   it('the --yes gate applies even under --dry-run (no silent preview bypass)', async () => {
     const { ctx, fetchImpl } = makeCtx(['MSG1', '--dry-run']);
 

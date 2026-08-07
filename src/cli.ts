@@ -20,6 +20,7 @@ import { parseArgs } from './args.js';
 import { createAuthenticator } from './auth.js';
 import { GraphClient } from './client.js';
 import type { CommandContext, CommandSpec } from './command.js';
+import { optionSchemaForCommand } from './cliOptions.js';
 import { resolveConfig } from './config.js';
 import { OutlookCliError, UsageError } from './errors.js';
 import { redactText } from './redact.js';
@@ -195,7 +196,7 @@ async function run(argv: string[]): Promise<number> {
   }
 
   const rest = argv.slice(1);
-  const args = parseArgs(rest);
+  const args = parseArgs(rest, optionSchemaForCommand(command.name));
 
   if (args.bool('help')) {
     process.stdout.write(`${command.summary}\n\n${command.usage}\n`);

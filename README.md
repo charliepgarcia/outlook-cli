@@ -61,6 +61,11 @@ draft-send carry no idempotency guarantee — an automatic retry after a network
 timeout can deliver the message twice. The HTTP layer retries idempotent verbs
 (GET/DELETE/PATCH) on throttling, and deliberately does not retry POST.
 
+Options are validated per command, so misspellings such as `--dryrun` fail with
+a usage error instead of being silently ignored. Boolean values may be written
+as `--flag`, `--flag=true`, or `--flag=false`; an explicit false never counts as
+confirmation for `purge`.
+
 ---
 
 ## Commands

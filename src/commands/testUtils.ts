@@ -9,6 +9,7 @@
 
 import { vi } from 'vitest';
 import { parseArgs } from '../args.js';
+import { optionSchemaForCommand } from '../cliOptions.js';
 import { GraphClient } from '../client.js';
 import type { Authenticator } from '../auth.js';
 import type { CommandContext } from '../command.js';
@@ -47,11 +48,14 @@ export interface TestCtx {
   fetchImpl: ReturnType<typeof vi.fn>;
 }
 
-export function makeCtx(argv: string[]): TestCtx {
+export function makeCtx(argv: string[], commandName?: string): TestCtx {
   const out: string[] = [];
   const err: string[] = [];
   const { client, fetchImpl } = makeClient();
-  const args = parseArgs(argv);
+  const args = parseArgs(
+    argv,
+    commandName === undefined ? undefined : optionSchemaForCommand(commandName),
+  );
 
   const ctx: CommandContext = {
     args,
