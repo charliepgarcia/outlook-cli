@@ -48,6 +48,22 @@ export class NotAuthenticatedError extends OutlookCliError {
   }
 }
 
+/**
+ * The cached grant is read-only and the command needs to change the mailbox.
+ * Caught locally, before the request goes out, so a least-privilege session
+ * fails with an actionable message instead of an opaque Graph 403.
+ */
+export class InsufficientScopeError extends OutlookCliError {
+  constructor(action: string) {
+    super(
+      `This session was signed in with --readonly, so it cannot ${action}.\n` +
+        `\nRe-authorize with full access:  outlook auth login`,
+      3,
+    );
+    this.name = 'InsufficientScopeError';
+  }
+}
+
 /** Bad flags or arguments. */
 export class UsageError extends OutlookCliError {
   constructor(message: string) {

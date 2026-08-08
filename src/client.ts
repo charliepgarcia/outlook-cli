@@ -7,8 +7,20 @@
  * double-send a real email. This client NEVER auto-retries POST.
  */
 
-import { GRAPH_BASE, type RequestSpec } from './types.js';
-import { parseGraphError } from './errors.js';
+import { GRAPH_BASE, REQUEST_TIMEOUT_MS, type RequestSpec } from './types.js';
+import { OutlookCliError, parseGraphError } from './errors.js';
+
+/**
+ * Refusal to send a credentialed request somewhere it does not belong.
+ * Not a UsageError — the offending URL is server-supplied data (an
+ * `@odata.nextLink`), not something the user typed.
+ */
+export class UntrustedUrlError extends OutlookCliError {
+  constructor(message: string) {
+    super(message, 1);
+    this.name = 'UntrustedUrlError';
+  }
+}
 
 export interface GraphClientDeps {
   /** Supplies a fresh bearer token per attempt. Never imported from auth.ts here — DI only. */
@@ -39,6 +51,8 @@ export class GraphClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly baseUrl: string;
   private readonly maxRetries: number;
+  /** Derived from baseUrl, so a national-cloud endpoint stays configurable. */
+  private readonly allowedHost: string;
 
   constructor(deps: GraphClientDeps) {
     this.getToken = deps.getToken;
@@ -46,6 +60,7 @@ export class GraphClient {
     this.sleep = deps.sleep ?? defaultSleep;
     this.baseUrl = deps.baseUrl ?? GRAPH_BASE;
     this.maxRetries = deps.maxRetries ?? DEFAULT_MAX_RETRIES;
+    this.allowedHost = new URL(this.baseUrl).host;
   }
 
   /**
@@ -105,13 +120,57 @@ export class GraphClient {
     await this.request<void>(this.buildSpec('DELETE', path));
   }
 
+  /**
+   * The single place a bearer token is attached to an outbound request — and
+   * therefore the only correct place to decide whether this URL is allowed to
+   * receive one.
+   *
+   * `buildUrl` passes an absolute `path` straight through so a server-issued
+   * `@odata.nextLink` can be followed verbatim. That link is response data: a
+   * spoofed, MITM'd, or malformed one pointing at `http://attacker.example`
+   * previously received the live mailbox token, in cleartext, and a stolen
+   * Graph token replays against real Graph regardless of who presents it.
+   * Validating here rather than in `buildUrl` means no future caller can
+   * reintroduce the hole by constructing a spec some other way.
+   */
+  private assertTokenMayBeSent(url: string): void {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new UntrustedUrlError(`Refusing to send credentials to a malformed URL: ${url}`);
+    }
+
+    if (parsed.protocol !== 'https:') {
+      throw new UntrustedUrlError(
+        `Refusing to send credentials over ${parsed.protocol}// — HTTPS is required (${url})`,
+      );
+    }
+    if (parsed.host !== this.allowedHost) {
+      throw new UntrustedUrlError(
+        `Refusing to send credentials to '${parsed.host}' — ` +
+          `only '${this.allowedHost}' is authorized for this client.`,
+      );
+    }
+  }
+
   private async send(spec: RequestSpec): Promise<Response> {
+    this.assertTokenMayBeSent(spec.url);
+
     const token = await this.getToken();
     const headers: Record<string, string> = {
       ...(spec.headers ?? {}),
       Authorization: `Bearer ${token}`,
     };
-    const init: RequestInit = { method: spec.method, headers };
+    const init: RequestInit = {
+      method: spec.method,
+      headers,
+      // A 3xx to another origin would otherwise replay the Authorization
+      // header there. Graph does not redirect its API responses; treat one as
+      // hostile rather than following it.
+      redirect: 'error',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    };
     if (spec.body !== undefined) {
       init.body = JSON.stringify(spec.body);
     }
