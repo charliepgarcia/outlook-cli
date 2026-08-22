@@ -15,6 +15,12 @@
 
 import { createRequire } from 'node:module';
 
+import { loadEnvFile } from './env.js';
+
+// Load ~/.afk/config/afk.env before anything reads process.env — agent
+// sessions may not have GRAPH_CLIENT_ID exported in the shell profile.
+loadEnvFile();
+
 import type { ParsedArgs } from './args.js';
 import { parseArgs } from './args.js';
 import { createAuthenticator } from './auth.js';
@@ -45,6 +51,7 @@ import {
   replyAllCommand,
   replyCommand,
 } from './commands/reply.js';
+import { rulesCommand } from './commands/rules.js';
 import { searchCommand } from './commands/search.js';
 import { sendCommand } from './commands/send.js';
 
@@ -68,6 +75,7 @@ const COMMANDS: readonly CommandSpec[] = [
   markUnreadCommand,
   flagCommand,
   unflagCommand,
+  rulesCommand,
 ];
 
 const REGISTRY = new Map<string, CommandSpec>(
@@ -95,6 +103,7 @@ const GROUPS: readonly { title: string; names: readonly string[] }[] = [
       'mark-unread',
       'flag',
       'unflag',
+      'rules',
     ],
   },
 ];
