@@ -210,5 +210,5 @@ export const DEFAULT_SCOPES = [
   'User.Read',
   'Mail.ReadWrite',
   'Mail.Send',
-  'MailboxSettings.Read',
+  'MailboxSettings.ReadWrite',
 ] as const;
