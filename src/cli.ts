@@ -15,6 +15,12 @@
 
 import { createRequire } from 'node:module';
 
+import { loadEnvFile } from './env.js';
+
+// Load ~/.afk/config/afk.env before anything reads process.env — agent
+// sessions may not have GRAPH_CLIENT_ID exported in the shell profile.
+loadEnvFile();
+
 import type { ParsedArgs } from './args.js';
 import { parseArgs } from './args.js';
 import { createAuthenticator } from './auth.js';
