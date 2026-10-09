@@ -11,12 +11,14 @@
  * locally from those exports for the completeness assertions below.
  */
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { assertKnownFlags, COMMAND_FLAGS, GLOBAL_FLAGS } from './flagSpec.js';
 import { UsageError } from './errors.js';
 
 import { attachmentsCommand } from './commands/attachments.js';
 import { authCommand } from './commands/auth.js';
+import { contactsCommand } from './commands/contacts.js';
 import { draftCommand } from './commands/draft.js';
 import {
   flagCommand,
@@ -34,14 +36,17 @@ import {
   replyAllCommand,
   replyCommand,
 } from './commands/reply.js';
+import { rulesCommand } from './commands/rules.js';
 import { searchCommand } from './commands/search.js';
 import { sendCommand } from './commands/send.js';
 
 /**
  * Rebuilt independently of cli.ts's (unexported) COMMANDS array, from each
  * command module's own exports — the same exports cli.ts itself imports.
+ * Keyed by the identifier cli.ts uses, so the drift test below can check
+ * cli.ts's registry against this map by name.
  */
-const REGISTERED_COMMANDS = [
+const COMMANDS_BY_IDENTIFIER = {
   authCommand,
   meCommand,
   listCommand,
@@ -49,6 +54,7 @@ const REGISTERED_COMMANDS = [
   searchCommand,
   foldersCommand,
   attachmentsCommand,
+  contactsCommand,
   sendCommand,
   replyCommand,
   replyAllCommand,
@@ -61,7 +67,10 @@ const REGISTERED_COMMANDS = [
   markUnreadCommand,
   flagCommand,
   unflagCommand,
-] as const;
+  rulesCommand,
+} as const;
+
+const REGISTERED_COMMANDS = Object.values(COMMANDS_BY_IDENTIFIER);
 
 describe('assertKnownFlags — known flags pass', () => {
   it("accepts flags that are in the command's own list (list: folder, limit)", () => {
@@ -107,6 +116,27 @@ describe('assertKnownFlags — unregistered command name (fail closed)', () => {
 });
 
 describe('COMMAND_FLAGS — completeness against the real command registry', () => {
+  it("knows every command cli.ts registers (catches registry drift, e.g. 'rules' added without a flag entry)", () => {
+    const source = readFileSync(new URL('./cli.ts', import.meta.url), 'utf8');
+    const block = /const COMMANDS\b[^=]*=\s*\[([\s\S]*?)\];/.exec(source)?.[1] ?? '';
+    const registered = block.match(/\b\w+Command\b/g) ?? [];
+    expect(registered.length).toBeGreaterThan(0);
+    const known = Object.keys(COMMANDS_BY_IDENTIFIER);
+    for (const identifier of registered) {
+      expect(known, `cli.ts registers ${identifier}; add it to this test and to COMMAND_FLAGS`).toContain(identifier);
+    }
+    expect(registered.length).toBe(known.length);
+  });
+
+  it('accepts the rules create and contacts flags, and rejects typos on them', () => {
+    expect(() =>
+      assertKnownFlags('rules', ['name', 'folder', 'from', 'sender-contains', 'mark-read', 'stop-processing', 'enabled', 'sequence']),
+    ).not.toThrow();
+    expect(() => assertKnownFlags('contacts', ['top', 'all', 'limit', 'select', 'filter'])).not.toThrow();
+    expect(() => assertKnownFlags('rules', ['dryrun'])).toThrow(/Did you mean --dry-run\?/);
+    expect(() => assertKnownFlags('contacts', ['tpo'])).toThrow(UsageError);
+  });
+
   it('has an entry for every registered command', () => {
     for (const command of REGISTERED_COMMANDS) {
       expect(COMMAND_FLAGS[command.name]).toBeDefined();

@@ -51,6 +51,7 @@ export const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   search: ['limit', 'all', 'folder'],
   folders: ['parent', 'all', 'name'],
   attachments: ['all', 'out', 'force'],
+  contacts: ['top', 'all', 'limit', 'select', 'filter'],
   send: [...COMPOSE_FLAGS, 'save-sent'],
   reply: ['body'],
   'reply-all': ['body'],
@@ -63,6 +64,17 @@ export const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   'mark-unread': [],
   flag: [],
   unflag: [],
+  // `rules list` takes no flags of its own; these are `rules create`'s.
+  rules: [
+    'name',
+    'folder',
+    'from',
+    'sender-contains',
+    'mark-read',
+    'stop-processing',
+    'enabled',
+    'sequence',
+  ],
 };
 
 /** Levenshtein, capped — only used to build a "did you mean" hint. */
