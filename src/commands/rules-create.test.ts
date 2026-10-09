@@ -67,26 +67,26 @@ describe('rules create', () => {
       'create', '--name', 'Multi', '--folder', 'AAMkFolder',
       '--from', 'a@b.com', '--from', 'c@d.com',
     ]);
-    vi.spyOn(client, 'post').mockResolvedValue(CREATED_RULE);
+    const post = vi.spyOn(client, 'post').mockResolvedValue(CREATED_RULE);
 
     await rulesCommand.handler(ctx);
 
-    const body = client.post.mock.calls[0]?.[1] as Record<string, unknown>;
+    const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     const conds = body.conditions as { fromAddresses: Array<{ emailAddress: { address: string } }> };
     expect(conds.fromAddresses).toHaveLength(2);
-    expect(conds.fromAddresses[0].emailAddress.address).toBe('a@b.com');
-    expect(conds.fromAddresses[1].emailAddress.address).toBe('c@d.com');
+    expect(conds.fromAddresses[0]?.emailAddress.address).toBe('a@b.com');
+    expect(conds.fromAddresses[1]?.emailAddress.address).toBe('c@d.com');
   });
 
   it('defaults stopProcessingRules to true', async () => {
     const { ctx, client } = makeCtx([
       'create', '--name', 'Stop', '--folder', 'AAMkFolder', '--from', 'x@y.com',
     ]);
-    vi.spyOn(client, 'post').mockResolvedValue(CREATED_RULE);
+    const post = vi.spyOn(client, 'post').mockResolvedValue(CREATED_RULE);
 
     await rulesCommand.handler(ctx);
 
-    const body = client.post.mock.calls[0]?.[1] as Record<string, unknown>;
+    const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     const actions = body.actions as { stopProcessingRules: boolean };
     expect(actions.stopProcessingRules).toBe(true);
   });
@@ -96,11 +96,11 @@ describe('rules create', () => {
       'create', '--name', 'No Stop', '--folder', 'AAMk', '--from', 'x@y.com',
       '--no-stop-processing',
     ]);
-    vi.spyOn(client, 'post').mockResolvedValue(CREATED_RULE);
+    const post = vi.spyOn(client, 'post').mockResolvedValue(CREATED_RULE);
 
     await rulesCommand.handler(ctx);
 
-    const body = client.post.mock.calls[0]?.[1] as Record<string, unknown>;
+    const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     const actions = body.actions as { stopProcessingRules?: boolean };
     expect(actions.stopProcessingRules).toBeUndefined();
   });
