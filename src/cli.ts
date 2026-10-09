@@ -33,6 +33,7 @@ import { createTokenStore } from './tokenStore.js';
 
 import { attachmentsCommand } from './commands/attachments.js';
 import { authCommand } from './commands/auth.js';
+import { contactsCommand } from './commands/contacts.js';
 import { draftCommand } from './commands/draft.js';
 import {
   flagCommand,
@@ -62,6 +63,7 @@ const COMMANDS: readonly CommandSpec[] = [
   searchCommand,
   foldersCommand,
   attachmentsCommand,
+  contactsCommand,
   sendCommand,
   replyCommand,
   replyAllCommand,
@@ -88,6 +90,7 @@ const GROUPS: readonly { title: string; names: readonly string[] }[] = [
     title: 'Read',
     names: ['list', 'get', 'search', 'folders', 'attachments'],
   },
+  { title: 'People', names: ['contacts'] },
   {
     title: 'Send',
     names: ['send', 'reply', 'reply-all', 'forward', 'draft'],
