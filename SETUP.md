@@ -124,6 +124,8 @@ Optional variables (see `.env.example`):
 | `GRAPH_TENANT_ID` | `common` | `common` supports personal **and** work accounts |
 | `GRAPH_CLIENT_SECRET` | *(unset)* | Only for confidential-client mode; leave blank |
 | `GRAPH_TOKEN_CACHE` | `~/.afk/state/outlook/token.json` | Token cache location |
+| `OUTLOOK_SIGNATURE_FILE` | *(unset)* | Plain-text signature appended to outgoing mail (see README "Signatures") |
+| `OUTLOOK_SIGNATURE_HTML_FILE` | *(unset)* | HTML signature used for `--html` bodies |
 
 ---
 

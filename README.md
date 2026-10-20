@@ -134,13 +134,39 @@ Folder arguments accept the well-known names — `inbox`, `drafts`, `sentitems`,
 ### Sending
 | Command | Purpose |
 |---|---|
-| `outlook send --to <addr> --subject <s> [--body <text> \| --body-file <path>] [--cc] [--bcc] [--html] [--attach <path>...] [--no-save-sent]` | Send a message |
+| `outlook send --to <addr> --subject <s> [--body <text> \| --body-file <path>] [--cc] [--bcc] [--html] [--attach <path>...] [--signature <path> \| --no-signature] [--no-save-sent]` | Send a message |
 | `outlook reply <messageId> --body <text>` | Reply to the sender |
 | `outlook reply-all <messageId> --body <text>` | Reply to everyone |
 | `outlook forward <messageId> --to <addr> [--body <text>]` | Forward |
 
 `--to`, `--cc`, `--bcc` and `--attach` are repeatable, and address flags also
 accept comma-separated lists.
+
+### Signatures
+
+Microsoft Graph never adds your Outlook signature to mail sent through the API,
+so the CLI appends one itself. Point it at a file once:
+
+```bash
+echo 'OUTLOOK_SIGNATURE_FILE=/Users/you/.config/outlook/signature.txt' >> ~/.afk/config/afk.env
+echo 'OUTLOOK_SIGNATURE_HTML_FILE=/Users/you/.config/outlook/signature.html' >> ~/.afk/config/afk.env  # optional
+```
+
+- **On by default once configured** for `send`, `draft create`, `reply`,
+  `reply-all` and `forward`. `--no-signature` skips it for one message;
+  `--signature <path>` uses a different file (`.html`/`.htm` = HTML).
+- **Plain-text bodies** get the RFC 3676 `-- ` delimiter and the text signature.
+  **HTML bodies** (`--html`) get the HTML signature, or the text one escaped.
+  An HTML-only setup with a plain-text body is an error, not a silent skip.
+- **Replies and forwards** use Graph's plain-text `comment`, so they take the
+  text signature, placed above the quoted original.
+- **No `--body`:** a reply, reply-all or forward without `--body` still sends the signature on its own, as Outlook does when you sign an empty reply.
+- **`draft update` never adds one** (it would duplicate the create-time copy).
+- **Visible, never silent:** `--dry-run` shows the appended text and `--json`
+  reports `signatureApplied`. An unreadable signature file is a hard error.
+- `~/.afk/config/afk.env` is shared by every afk agent on the machine, so any
+  agent sending through this CLI will sign as you. Export the variable per
+  shell instead if that is not what you want.
 
 ### Drafts
 | Command | Purpose |

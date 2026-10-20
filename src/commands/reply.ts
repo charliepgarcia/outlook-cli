@@ -8,10 +8,15 @@
  * docs/02 §2 notes an inconsistency: the replyAll parameter table lists only
  * `comment`, while surrounding prose implies a `message` object may also be
  * accepted. We send only the documented `comment` field.
+ *
+ * Signatures: `comment` is plain text, so only a plain-text signature can be
+ * appended here (an HTML-only configuration is a loud error, see
+ * signature.ts). Exchange places the comment above the quoted original.
  */
 
 import { emit, guardMutation, type CommandContext, type CommandSpec } from '../command.js';
 import { UsageError } from '../errors.js';
+import { appendTextSignature, resolveSignature } from '../signature.js';
 import { describeRecipients, recipientsFromArgs } from './compose.js';
 
 type ReplyKind = 'reply' | 'replyAll' | 'forward';
@@ -28,7 +33,10 @@ async function runReplyAction(
   label: string,
 ): Promise<void> {
   const messageId = ctx.args.requirePositional(0, '<messageId>');
-  const comment = ctx.args.str('body') ?? '';
+  const body = ctx.args.str('body') ?? '';
+  const signature = await resolveSignature(ctx.args, ctx.env);
+  const comment =
+    signature === undefined ? body : appendTextSignature(body, signature);
 
   const payload: Record<string, unknown> = { comment };
 
@@ -55,7 +63,12 @@ async function runReplyAction(
   const recipients = payload['toRecipients'];
   emit(
     ctx,
-    { action: kind, messageId, sent: true },
+    {
+      action: kind,
+      messageId,
+      sent: true,
+      signatureApplied: signature !== undefined,
+    },
     () =>
       `${label} sent for message ${messageId}` +
       (Array.isArray(recipients)
@@ -67,7 +80,9 @@ async function runReplyAction(
 export const replyCommand: CommandSpec = {
   name: 'reply',
   summary: 'Reply to the sender of a message',
-  usage: 'outlook reply <messageId> [--body <text>] [--dry-run] [--json]',
+  usage:
+    'outlook reply <messageId> [--body <text>] ' +
+    '[--signature <path> | --no-signature] [--dry-run] [--json]',
   mutating: true,
   handler: (ctx) => runReplyAction(ctx, 'reply', 'Reply'),
 };
@@ -75,7 +90,9 @@ export const replyCommand: CommandSpec = {
 export const replyAllCommand: CommandSpec = {
   name: 'reply-all',
   summary: 'Reply to all recipients of a message',
-  usage: 'outlook reply-all <messageId> [--body <text>] [--dry-run] [--json]',
+  usage:
+    'outlook reply-all <messageId> [--body <text>] ' +
+    '[--signature <path> | --no-signature] [--dry-run] [--json]',
   mutating: true,
   handler: (ctx) => runReplyAction(ctx, 'replyAll', 'Reply-all'),
 };
@@ -85,7 +102,7 @@ export const forwardCommand: CommandSpec = {
   summary: 'Forward a message to other recipients',
   usage:
     'outlook forward <messageId> --to <addr> [--to <addr>...] ' +
-    '[--body <text>] [--dry-run] [--json]',
+    '[--body <text>] [--signature <path> | --no-signature] [--dry-run] [--json]',
   mutating: true,
   handler: (ctx) => runReplyAction(ctx, 'forward', 'Forward'),
 };

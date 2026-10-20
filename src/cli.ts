@@ -176,6 +176,7 @@ function buildContext(args: ParsedArgs): CommandContext {
     dryRun: args.bool('dry-run'),
     client,
     auth,
+    env: process.env,
     out: (line: string) => {
       process.stdout.write(`${line}\n`);
     },

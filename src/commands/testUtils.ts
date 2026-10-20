@@ -47,7 +47,10 @@ export interface TestCtx {
   fetchImpl: ReturnType<typeof vi.fn>;
 }
 
-export function makeCtx(argv: string[]): TestCtx {
+export function makeCtx(
+  argv: string[],
+  env: Record<string, string | undefined> = {},
+): TestCtx {
   const out: string[] = [];
   const err: string[] = [];
   const { client, fetchImpl } = makeClient();
@@ -59,6 +62,7 @@ export function makeCtx(argv: string[]): TestCtx {
     dryRun: args.bool('dry-run'),
     client,
     auth: stubAuth,
+    env,
     out: (line) => out.push(line),
     err: (line) => err.push(line),
   };
