@@ -13,6 +13,7 @@
 
 import { emit, guardMutation, type CommandSpec } from '../command.js';
 import { UsageError } from '../errors.js';
+import { resolveSignature } from '../signature.js';
 import {
   composeMessage,
   describeRecipients,
@@ -25,11 +26,13 @@ export const sendCommand: CommandSpec = {
   usage:
     'outlook send --to <addr> [--to <addr>...] --subject <text> ' +
     '[--cc <addr>] [--bcc <addr>] [--body <text> | --body-file <path>] ' +
-    '[--html] [--attach <path>...] [--no-save-sent] [--dry-run] [--json]',
+    '[--html] [--attach <path>...] [--signature <path> | --no-signature] ' +
+    '[--no-save-sent] [--dry-run] [--json]',
   mutating: true,
 
   async handler(ctx) {
-    const message = await composeMessage(ctx.args);
+    const signature = await resolveSignature(ctx.args, ctx.env);
+    const message = await composeMessage(ctx.args, { signature });
 
     if (!message.toRecipients || message.toRecipients.length === 0) {
       throw new UsageError(
@@ -64,6 +67,7 @@ export const sendCommand: CommandSpec = {
         to: message.toRecipients.map((r) => r.emailAddress.address),
         attachments: message.attachments?.length ?? 0,
         savedToSentItems: payload.saveToSentItems,
+        signatureApplied: signature !== undefined,
       },
       () => `Sent "${message.subject}" to ${to}`,
     );

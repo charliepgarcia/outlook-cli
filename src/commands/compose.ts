@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import type { ParsedArgs } from '../args.js';
 import { UsageError } from '../errors.js';
 import { readFileAttachment } from '../mime.js';
+import { applySignature, type Signature } from '../signature.js';
 import type {
   BodyContentType,
   FileAttachmentUpload,
@@ -84,9 +85,15 @@ export interface ComposedMessage {
   attachments?: FileAttachmentUpload[];
 }
 
+export interface ComposeOptions {
+  /** Appended to the body (creating one if needed) when the message is non-empty. */
+  signature?: Signature;
+}
+
 /** Build the `message` object shared by sendMail and draft create/update. */
 export async function composeMessage(
   args: ParsedArgs,
+  options: ComposeOptions = {},
 ): Promise<ComposedMessage> {
   const message: ComposedMessage = {};
 
@@ -107,6 +114,17 @@ export async function composeMessage(
 
   const attachments = await loadAttachments(args);
   if (attachments.length > 0) message.attachments = attachments;
+
+  // Only sign a message that has content: a signature alone must not turn an
+  // empty `draft create` into a real draft and bypass its "nothing" check.
+  const { signature } = options;
+  if (signature !== undefined && Object.keys(message).length > 0) {
+    const base: ItemBody = message.body ?? {
+      contentType: args.bool('html') ? 'html' : 'text',
+      content: '',
+    };
+    message.body = applySignature(base, signature);
+  }
 
   return message;
 }

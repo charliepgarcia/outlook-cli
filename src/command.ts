@@ -25,6 +25,12 @@ export interface CommandContext {
   auth: Authenticator;
   out: (line: string) => void;
   err: (line: string) => void;
+  /**
+   * Environment for per-invocation settings (e.g. signature files). Injected
+   * rather than read from process.env so tests are hermetic; cli.ts passes
+   * process.env. Absent means "nothing configured".
+   */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 export type CommandHandler = (ctx: CommandContext) => Promise<void>;

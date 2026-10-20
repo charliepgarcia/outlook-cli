@@ -34,6 +34,7 @@ const COMPOSE_FLAGS: readonly string[] = [
   'body-file',
   'html',
   'attach',
+  'signature',
 ];
 
 /**
@@ -52,9 +53,9 @@ export const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   folders: ['parent', 'all', 'name'],
   attachments: ['all', 'out', 'force'],
   send: [...COMPOSE_FLAGS, 'save-sent'],
-  reply: ['body'],
-  'reply-all': ['body'],
-  forward: ['body', 'to'],
+  reply: ['body', 'signature'],
+  'reply-all': ['body', 'signature'],
+  forward: ['body', 'to', 'signature'],
   draft: [...COMPOSE_FLAGS, 'limit', 'all'],
   move: ['folder'],
   delete: [],

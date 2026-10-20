@@ -10,6 +10,7 @@ import { emit, guardMutation, type CommandContext, type CommandSpec } from '../c
 import { UsageError } from '../errors.js';
 import { collectItems } from '../paginate.js';
 import { renderMessageList } from '../output.js';
+import { resolveSignature, signatureFlagRequested } from '../signature.js';
 import type { Message } from '../types.js';
 import { composeMessage } from './compose.js';
 
@@ -31,7 +32,8 @@ async function listDrafts(ctx: CommandContext): Promise<void> {
 }
 
 async function createDraft(ctx: CommandContext): Promise<void> {
-  const message = await composeMessage(ctx.args);
+  const signature = await resolveSignature(ctx.args, ctx.env);
+  const message = await composeMessage(ctx.args, { signature });
 
   if (Object.keys(message).length === 0) {
     throw new UsageError(
@@ -49,13 +51,21 @@ async function createDraft(ctx: CommandContext): Promise<void> {
 
   emit(
     ctx,
-    created,
+    { ...created, signatureApplied: signature !== undefined },
     () => `Draft created: ${created.id}\nSend it with:  outlook draft send ${created.id}`,
   );
 }
 
 async function updateDraft(ctx: CommandContext): Promise<void> {
   const id = ctx.args.requirePositional(1, '<draftId>');
+  // Never sign on update: the draft was signed at create time, and a replaced
+  // body would otherwise gain a second copy on every edit.
+  if (signatureFlagRequested(ctx.args)) {
+    throw new UsageError(
+      'draft update never adds a signature (it would duplicate the one added ' +
+        'at create time). Include it in --body yourself if you need it.',
+    );
+  }
   const message = await composeMessage(ctx.args);
 
   if (Object.keys(message).length === 0) {
