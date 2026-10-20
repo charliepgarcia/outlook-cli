@@ -84,6 +84,29 @@ describe('signatureFlagRequested', () => {
   });
 });
 
+describe('readSignatureFile (empty-file guard)', () => {
+  it('item 1: empty file via env throws UsageError naming path and origin', async () => {
+    const empty = join(dir, 'empty.txt');
+    await writeFile(empty, '');
+    const err = await resolveSignature(parseArgs([]), {
+      OUTLOOK_SIGNATURE_FILE: empty,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain(empty);
+    expect((err as Error).message).toContain('OUTLOOK_SIGNATURE_FILE');
+  });
+
+  it('item 1: whitespace-only file via --signature throws UsageError naming path', async () => {
+    const ws = join(dir, 'whitespace.txt');
+    await writeFile(ws, '   \n  \t  \n');
+    const err = await resolveSignature(parseArgs(['--signature', ws]), {}).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain(ws);
+  });
+});
+
 describe('applySignature', () => {
   it('appends a text signature with the RFC 3676 "-- " delimiter', () => {
     const body = applySignature(
@@ -110,6 +133,18 @@ describe('applySignature', () => {
     );
     expect(body.content).toBe(
       '<html><body><p>Hi</p><br><div class="outlook-cli-signature"><b>G</b></div></body></html>',
+    );
+  });
+
+  it('item 4: multi-byte char (İ) before </body> does not shift splice offset', () => {
+    // İ (U+0130) is one code unit but toLowerCase() maps it to two ('i\u0307'),
+    // which would shift the old lastIndexOf-on-toLowerCase result by 1.
+    const body = applySignature(
+      { contentType: 'html', content: '<html><body>\u0130</body></html>' },
+      { html: '<b>G</b>' },
+    );
+    expect(body.content).toBe(
+      '<html><body>\u0130<br><div class="outlook-cli-signature"><b>G</b></div></body></html>',
     );
   });
 

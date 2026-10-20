@@ -12,7 +12,7 @@ import { collectItems } from '../paginate.js';
 import { renderMessageList } from '../output.js';
 import { resolveSignature, signatureFlagRequested } from '../signature.js';
 import type { Message } from '../types.js';
-import { composeMessage } from './compose.js';
+import { composeMessage, signMessage } from './compose.js';
 
 const DRAFTS_PATH = '/me/mailFolders/drafts/messages';
 const SUBCOMMANDS = ['list', 'create', 'update', 'send'] as const;
@@ -32,14 +32,18 @@ async function listDrafts(ctx: CommandContext): Promise<void> {
 }
 
 async function createDraft(ctx: CommandContext): Promise<void> {
-  const signature = await resolveSignature(ctx.args, ctx.env);
-  const message = await composeMessage(ctx.args, { signature });
+  // Compose and check 'nothing to create' before reading the
+  // signature file, so an empty draft surfaces the right error.
+  const message = await composeMessage(ctx.args);
 
   if (Object.keys(message).length === 0) {
     throw new UsageError(
       'Nothing to create. Provide at least --subject, --body or --to.',
     );
   }
+
+  const signature = await resolveSignature(ctx.args, ctx.env);
+  signMessage(message, signature, ctx.args);
 
   const spec = ctx.client.buildSpec('POST', '/me/messages', message);
 

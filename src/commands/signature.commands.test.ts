@@ -108,6 +108,15 @@ describe('draft with a signature', () => {
 });
 
 describe('reply-family with a signature', () => {
+  it('item 2: reply with no --body sends only the signature block', async () => {
+    const { ctx, client } = makeCtx(['MSG1'], env);
+    const post = vi.spyOn(client, 'post').mockResolvedValue(undefined as never);
+
+    await replyCommand.handler(ctx);
+
+    expect(post.mock.calls[0]?.[1]).toEqual({ comment: '-- \nGriffin' });
+  });
+
   it('reply appends the text signature to the comment', async () => {
     const { ctx, client } = makeCtx(['MSG1', '--body', 'Thanks!'], env);
     const post = vi.spyOn(client, 'post').mockResolvedValue(undefined as never);
@@ -115,6 +124,26 @@ describe('reply-family with a signature', () => {
     await replyCommand.handler(ctx);
 
     expect(post.mock.calls[0]?.[1]).toEqual({ comment: 'Thanks!\n\n-- \nGriffin' });
+  });
+
+  it('item 5: send with missing sig file and no --to reports recipient error', async () => {
+    const { ctx } = makeCtx(
+      ['--subject', 'S', '--body', 'Hi'],
+      { OUTLOOK_SIGNATURE_FILE: '/nonexistent/missing-sig.txt' },
+    );
+    const err = await sendCommand.handler(ctx).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('recipient');
+  });
+
+  it('item 5: draft create with no content and missing sig file reports nothing-to-create', async () => {
+    const { ctx } = makeCtx(
+      ['create'],
+      { OUTLOOK_SIGNATURE_FILE: '/nonexistent/missing-sig.txt' },
+    );
+    const err = await draftCommand.handler(ctx).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UsageError);
+    expect((err as Error).message).toContain('Nothing to create');
   });
 
   it('forward honours --no-signature', async () => {

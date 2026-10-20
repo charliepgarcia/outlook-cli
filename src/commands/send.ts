@@ -18,6 +18,7 @@ import {
   composeMessage,
   describeRecipients,
   saveToSentItems,
+  signMessage,
 } from './compose.js';
 
 export const sendCommand: CommandSpec = {
@@ -31,8 +32,9 @@ export const sendCommand: CommandSpec = {
   mutating: true,
 
   async handler(ctx) {
-    const signature = await resolveSignature(ctx.args, ctx.env);
-    const message = await composeMessage(ctx.args, { signature });
+    // Compose first, validate --to/--subject, then resolve + apply
+    // signature — so a missing recipient surfaces before a bad signature path.
+    const message = await composeMessage(ctx.args);
 
     if (!message.toRecipients || message.toRecipients.length === 0) {
       throw new UsageError(
@@ -43,6 +45,9 @@ export const sendCommand: CommandSpec = {
     if (message.subject === undefined || message.subject.trim() === '') {
       throw new UsageError('--subject is required.');
     }
+
+    const signature = await resolveSignature(ctx.args, ctx.env);
+    signMessage(message, signature, ctx.args);
 
     const payload = {
       message,

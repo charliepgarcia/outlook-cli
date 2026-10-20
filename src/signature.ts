@@ -49,8 +49,17 @@ function isHtmlPath(path: string): boolean {
 
 async function readSignatureFile(path: string, origin: string): Promise<string> {
   try {
-    return await readFile(path, 'utf8');
+    const content = await readFile(path, 'utf8');
+    // An all-whitespace file is a misconfiguration, not a valid empty sig.
+    if (content.trim() === '') {
+      throw new UsageError(
+        `Signature file ${path} (from ${origin}) is empty. ` +
+          'Add content, or pass --no-signature to send without one.',
+      );
+    }
+    return content;
   } catch (e) {
+    if (e instanceof UsageError) throw e;
     const reason = e instanceof Error ? e.message : String(e);
     throw new UsageError(
       `Could not read signature file ${path} (from ${origin}): ${reason}\n` +
@@ -136,9 +145,13 @@ function appendHtmlSignature(content: string, sig: Signature): string {
     escapeHtml((sig.text ?? '').trimEnd()).replace(/\r?\n/g, '<br>');
   const block = `<br><div class="outlook-cli-signature">${html}</div>`;
 
-  const close = content.toLowerCase().lastIndexOf('</body>');
-  if (close === -1) return `${content}${block}`;
-  return `${content.slice(0, close)}${block}${content.slice(close)}`;
+  // Search the original string case-insensitively. Searching a lowercased
+  // copy breaks when lowercasing changes length (U+0130 "İ" becomes two code
+  // units), shifting the splice into the middle of the tag.
+  const matches = [...content.matchAll(/<\/body>/gi)];
+  const last = matches[matches.length - 1];
+  if (last?.index === undefined) return `${content}${block}`;
+  return `${content.slice(0, last.index)}${block}${content.slice(last.index)}`;
 }
 
 /** Return a new body with the signature appended in the body's own format. */

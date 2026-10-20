@@ -160,6 +160,7 @@ echo 'OUTLOOK_SIGNATURE_HTML_FILE=/Users/you/.config/outlook/signature.html' >> 
   An HTML-only setup with a plain-text body is an error, not a silent skip.
 - **Replies and forwards** use Graph's plain-text `comment`, so they take the
   text signature, placed above the quoted original.
+- **No `--body`:** a reply, reply-all or forward without `--body` still sends the signature on its own, as Outlook does when you sign an empty reply.
 - **`draft update` never adds one** (it would duplicate the create-time copy).
 - **Visible, never silent:** `--dry-run` shows the appended text and `--json`
   reports `signatureApplied`. An unreadable signature file is a hard error.
