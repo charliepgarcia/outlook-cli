@@ -105,10 +105,12 @@ describe('rules list', () => {
     expect(output).toContain('no');
   });
 
-  it('throws UsageError for an unknown subcommand', async () => {
+  it('throws UsageError for an unknown subcommand with the expected message', async () => {
     const { ctx } = makeCtx(['bogus']);
 
-    await expect(rulesCommand.handler(ctx)).rejects.toBeInstanceOf(UsageError);
+    await expect(rulesCommand.handler(ctx)).rejects.toThrow(
+      /Expected "list" or "create"/,
+    );
   });
 
   it('never touches the network directly', async () => {

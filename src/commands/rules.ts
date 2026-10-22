@@ -223,11 +223,10 @@ function buildRuleBody(ctx: CommandContext): Record<string, unknown> {
 
 async function createHandler(ctx: CommandContext): Promise<void> {
   const body = buildRuleBody(ctx);
-  const path = RULES_PATH;
-  const spec = ctx.client.buildSpec('POST', path, body);
+  const spec = ctx.client.buildSpec('POST', RULES_PATH, body);
 
   const created = await guardMutation(ctx, spec, async () =>
-    ctx.client.post<MessageRule>(path, body),
+    ctx.client.post<MessageRule>(RULES_PATH, body),
   );
 
   if (created === undefined) return; // --dry-run already reported
@@ -273,6 +272,7 @@ export const rulesCommand: CommandSpec = {
     '       outlook rules create --name <text> --folder <id>\n' +
     '           [--from <addr>...] [--sender-contains <domain>...]\n' +
     '           [--mark-read] [--stop-processing] [--enabled]\n' +
+    '           (--stop-processing defaults to on; use --no-stop-processing to disable)\n' +
     '           [--dry-run] [--json]',
   mutating: true,
   handler: rulesHandler,
