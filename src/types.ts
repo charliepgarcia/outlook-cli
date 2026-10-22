@@ -156,6 +156,17 @@ export function isWellKnownFolder(name: string): boolean {
 }
 
 /** OAuth2 token set as persisted to the local 0600 cache. */
+/**
+ * Which scope set this grant was obtained with.
+ *
+ * Tracked explicitly rather than inferred from the `scope` string Azure echoes
+ * back, because that echo lists resource scopes and generally omits
+ * `offline_access` — refreshing against it would quietly cost us the rotated
+ * refresh token. Absent on a token issued before read-only mode existed, which
+ * is read as 'full' so an existing login keeps working untouched.
+ */
+export type GrantMode = 'readonly' | 'full';
+
 export interface TokenSet {
   accessToken: string;
   refreshToken?: string;
@@ -165,6 +176,7 @@ export interface TokenSet {
   tokenType?: string;
   /** Signed-in identity, for `auth status`. */
   account?: string;
+  mode?: GrantMode;
 }
 
 /** Response from the /devicecode endpoint (docs/00 §2). */
@@ -205,6 +217,18 @@ export interface OutlookConfig {
 
 export const GRAPH_BASE = 'https://graph.microsoft.com/v1.0';
 
+/**
+ * Hard ceiling on a single HTTP attempt, shared by every outbound call —
+ * Graph requests and the identity-platform credential exchanges alike. Without
+ * it a hung socket hangs the CLI indefinitely, which for the unattended agent
+ * this tool is built for is a stall with no operator present to notice it.
+ *
+ * Per ATTEMPT, never per operation: the device-code poll legitimately runs for
+ * the lifetime of the code, so each of its requests gets its own fresh timeout
+ * rather than one deadline around the loop.
+ */
+export const REQUEST_TIMEOUT_MS = 60_000;
+
 export const DEFAULT_SCOPES = [
   'offline_access',
   'User.Read',
@@ -212,3 +236,23 @@ export const DEFAULT_SCOPES = [
   'Mail.Send',
   'MailboxSettings.ReadWrite',
 ] as const;
+
+/**
+ * Least-privilege alternative for `outlook auth login --readonly`.
+ *
+ * Mail.Read replaces Mail.ReadWrite and Mail.Send is dropped entirely, so the
+ * refresh token this grant persists cannot send, delete, or modify mail even
+ * if the token file is stolen. Agents that only ever list/search/read should
+ * use it: the default grant's blast radius is the whole mailbox, forever,
+ * because `offline_access` keeps it alive.
+ */
+export const READONLY_SCOPES = [
+  'offline_access',
+  'User.Read',
+  'Mail.Read',
+  'MailboxSettings.Read',
+] as const;
+
+export function scopesForMode(mode: GrantMode): readonly string[] {
+  return mode === 'readonly' ? READONLY_SCOPES : DEFAULT_SCOPES;
+}

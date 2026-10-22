@@ -28,6 +28,7 @@ import { GraphClient } from './client.js';
 import type { CommandContext, CommandSpec } from './command.js';
 import { resolveConfig } from './config.js';
 import { OutlookCliError, UsageError } from './errors.js';
+import { assertKnownFlags } from './flagSpec.js';
 import { redactText } from './redact.js';
 import { createTokenStore } from './tokenStore.js';
 
@@ -175,6 +176,7 @@ function buildContext(args: ParsedArgs): CommandContext {
     dryRun: args.bool('dry-run'),
     client,
     auth,
+    env: process.env,
     out: (line: string) => {
       process.stdout.write(`${line}\n`);
     },
@@ -206,10 +208,14 @@ async function run(argv: string[]): Promise<number> {
   const rest = argv.slice(1);
   const args = parseArgs(rest);
 
-  if (args.bool('help')) {
+  if (args.bool('help') || args.bool('h')) {
     process.stdout.write(`${command.summary}\n\n${command.usage}\n`);
     return 0;
   }
+
+  // Fail closed on a misspelled flag BEFORE any context is built or any
+  // handler runs. A typo'd --dry-run must never reach a mutating command.
+  assertKnownFlags(command.name, args.names());
 
   const ctx = buildContext(args);
 

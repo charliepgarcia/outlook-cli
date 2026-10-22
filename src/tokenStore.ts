@@ -5,12 +5,28 @@
  * returns `null` rather than throwing.
  */
 
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { randomBytes } from 'node:crypto';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import type { TokenSet } from './types.js';
 
 /** Owner read/write only — the file holds an access + refresh token. */
 const FILE_MODE = 0o600;
+
+/**
+ * Owner-only on the containing directory too. The file itself is already 0600,
+ * so this is not what protects the secret — it stops a world-readable directory
+ * from advertising that a token cache exists and when it was last written.
+ */
+const DIR_MODE = 0o700;
+
+/**
+ * chmod cannot express "owner only" through the Win32 ACL model, so on Windows
+ * the 0600 above is decorative and the token file inherits directory
+ * permissions. Callers are told once, loudly, rather than being left with a
+ * false sense of protection. See docs/security-review-2026-08-07.md (#4).
+ */
+export const FILE_MODE_IS_ENFORCED = process.platform !== 'win32';
 
 export interface TokenStore {
   readonly path: string;
@@ -35,13 +51,46 @@ export function createTokenStore(path: string): TokenStore {
       }
     },
 
+    /**
+     * Atomic: write a fresh temp file, lock it down, then rename over the
+     * target. rename(2) is atomic within a directory, so a reader either sees
+     * the whole old token set or the whole new one — never a half-written
+     * file. The previous in-place writeFile could leave a truncated cache
+     * behind if the process died mid-write, or interleave two concurrent
+     * refreshes into corrupt JSON, either of which forces a re-login.
+     *
+     * The temp file carries the restrictive mode from creation, so the secret
+     * is never briefly world-readable in the window before chmod lands.
+     *
+     * The temp NAME is random and the open is exclusive. The previous
+     * `.${pid}-${Date.now()}.token.tmp` was guessable, and writeFile's default
+     * O_CREAT|O_TRUNC follows a symlink — so a link pre-planted at that path
+     * would have received the token at whatever destination it pointed to.
+     * 'wx' (O_CREAT|O_EXCL) refuses to open anything that already exists.
+     */
     async save(tokens: TokenSet): Promise<void> {
-      await mkdir(dirname(path), { recursive: true });
-      // `mode` on writeFile only takes effect when the file is *created*;
-      // if it already exists with looser permissions, writeFile leaves them
-      // alone. The explicit chmod is what actually guarantees 0600 either way.
-      await writeFile(path, JSON.stringify(tokens, null, 2), { mode: FILE_MODE });
-      await chmod(path, FILE_MODE);
+      const dir = dirname(path);
+      await mkdir(dir, { recursive: true, mode: DIR_MODE });
+
+      const tmp = join(dir, `.${randomBytes(8).toString('hex')}.token.tmp`);
+      try {
+        await writeFile(tmp, JSON.stringify(tokens, null, 2), {
+          mode: FILE_MODE,
+          flag: 'wx',
+        });
+        // `mode` on writeFile only applies at creation; chmod makes it
+        // explicit. On Windows both are advisory — see FILE_MODE_IS_ENFORCED.
+        await chmod(tmp, FILE_MODE);
+        await rename(tmp, path);
+      } catch (error) {
+        // EEXIST means the path was already occupied by something this
+        // function did not create. Removing it would be deleting a stranger's
+        // file on the way out of a failure — leave it alone.
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          await rm(tmp, { force: true }).catch(() => undefined);
+        }
+        throw error;
+      }
     },
 
     async clear(): Promise<void> {
@@ -64,6 +113,11 @@ function isTokenSet(value: unknown): value is TokenSet {
   if (v['scope'] !== undefined && typeof v['scope'] !== 'string') return false;
   if (v['tokenType'] !== undefined && typeof v['tokenType'] !== 'string') return false;
   if (v['account'] !== undefined && typeof v['account'] !== 'string') return false;
+  // An unrecognized mode must not silently read as 'full' (that would be a
+  // privilege upgrade on a corrupt cache) — reject the whole cache instead.
+  if (v['mode'] !== undefined && v['mode'] !== 'readonly' && v['mode'] !== 'full') {
+    return false;
+  }
 
   return true;
 }

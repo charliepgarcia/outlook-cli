@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import type { ParsedArgs } from '../args.js';
 import { UsageError } from '../errors.js';
 import { readFileAttachment } from '../mime.js';
+import { applySignature, type Signature } from '../signature.js';
 import type {
   BodyContentType,
   FileAttachmentUpload,
@@ -109,6 +110,27 @@ export async function composeMessage(
   if (attachments.length > 0) message.attachments = attachments;
 
   return message;
+}
+
+/**
+ * Apply a resolved signature to an already-composed message (mutates).
+ *
+ * Extracted from composeMessage so callers can run --to/--subject validation
+ * and the 'Nothing to create' check BEFORE the signature file is even touched.
+ * No-op when signature is undefined or the message has no content at all
+ * (preserving the draft-create empty-guard semantics).
+ */
+export function signMessage(
+  message: ComposedMessage,
+  signature: Signature | undefined,
+  args: ParsedArgs,
+): void {
+  if (signature === undefined || Object.keys(message).length === 0) return;
+  const base: ItemBody = message.body ?? {
+    contentType: args.bool('html') ? 'html' : 'text',
+    content: '',
+  };
+  message.body = applySignature(base, signature);
 }
 
 /**

@@ -27,7 +27,8 @@
 
 import { emit, type CommandContext, type CommandSpec } from '../command.js';
 import { UsageError } from '../errors.js';
-import type { DeviceCodeResponse, TokenSet } from '../types.js';
+import { FILE_MODE_IS_ENFORCED } from '../tokenStore.js';
+import type { DeviceCodeResponse, GrantMode, TokenSet } from '../types.js';
 
 const SUBCOMMANDS = ['login', 'status', 'logout', 'refresh'] as const;
 
@@ -38,6 +39,7 @@ interface AuthFacts {
   account?: string;
   expiresAt?: number;
   scopes?: string;
+  mode?: GrantMode;
 }
 
 function renderFacts(facts: AuthFacts): string {
@@ -46,6 +48,11 @@ function renderFacts(facts: AuthFacts): string {
   if (facts.account) lines.push(`Account: ${facts.account}`);
   if (facts.expiresAt !== undefined) lines.push(`Expires: ${new Date(facts.expiresAt).toISOString()}`);
   if (facts.scopes) lines.push(`Scopes: ${facts.scopes}`);
+  if (facts.mode) {
+    lines.push(
+      `Access: ${facts.mode === 'readonly' ? 'read-only (cannot send or delete)' : 'full read/write'}`,
+    );
+  }
   return lines.join('\n');
 }
 
@@ -56,6 +63,7 @@ function factsFromTokenSet(tokens: TokenSet): AuthFacts {
     ...(tokens.account !== undefined ? { account: tokens.account } : {}),
     expiresAt: tokens.expiresAt,
     ...(tokens.scope !== undefined ? { scopes: tokens.scope } : {}),
+    ...(tokens.mode !== undefined ? { mode: tokens.mode } : {}),
   };
 }
 
@@ -74,7 +82,23 @@ function printDevicePrompt(ctx: CommandContext, device: DeviceCodeResponse): voi
 }
 
 async function loginHandler(ctx: CommandContext): Promise<void> {
-  const tokens = await ctx.auth.login((device) => printDevicePrompt(ctx, device));
+  const readOnly = ctx.args.bool('readonly');
+  const tokens = await ctx.auth.login(
+    (device) => printDevicePrompt(ctx, device),
+    { readOnly },
+  );
+
+  // The stored refresh token is only as private as the file holding it, and
+  // on Windows the 0600 we request is not actually enforced. Say so once, at
+  // the moment the secret is created, rather than implying a guarantee.
+  if (!FILE_MODE_IS_ENFORCED) {
+    ctx.err(
+      'warning: on Windows the token cache cannot be restricted to your user ' +
+        'account by file mode alone. Restrict the containing directory with an ' +
+        'ACL, or sign in with --readonly to limit what a stolen token can do.',
+    );
+  }
+
   const facts = factsFromTokenSet(tokens);
   emit(ctx, facts, () => `Signed in.\n${renderFacts(facts)}`);
 }
@@ -118,7 +142,12 @@ async function authHandler(ctx: CommandContext): Promise<void> {
 export const authCommand: CommandSpec = {
   name: 'auth',
   summary: 'Manage local sign-in: login, status, logout, refresh',
-  usage: 'outlook auth [login|status|logout|refresh] [--json]',
+  usage:
+    'outlook auth [login|status|logout|refresh] [--readonly] [--json]\n' +
+    '\n' +
+    '  --readonly  On login: request Mail.Read instead of Mail.ReadWrite and\n' +
+    '              drop Mail.Send, so the stored token cannot send, delete, or\n' +
+    '              modify mail. Recommended for unattended/agent use.',
   mutating: false,
   handler: authHandler,
 };

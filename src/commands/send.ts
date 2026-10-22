@@ -13,10 +13,12 @@
 
 import { emit, guardMutation, type CommandSpec } from '../command.js';
 import { UsageError } from '../errors.js';
+import { resolveSignature } from '../signature.js';
 import {
   composeMessage,
   describeRecipients,
   saveToSentItems,
+  signMessage,
 } from './compose.js';
 
 export const sendCommand: CommandSpec = {
@@ -25,10 +27,13 @@ export const sendCommand: CommandSpec = {
   usage:
     'outlook send --to <addr> [--to <addr>...] --subject <text> ' +
     '[--cc <addr>] [--bcc <addr>] [--body <text> | --body-file <path>] ' +
-    '[--html] [--attach <path>...] [--no-save-sent] [--dry-run] [--json]',
+    '[--html] [--attach <path>...] [--signature <path> | --no-signature] ' +
+    '[--no-save-sent] [--dry-run] [--json]',
   mutating: true,
 
   async handler(ctx) {
+    // Compose first, validate --to/--subject, then resolve + apply
+    // signature — so a missing recipient surfaces before a bad signature path.
     const message = await composeMessage(ctx.args);
 
     if (!message.toRecipients || message.toRecipients.length === 0) {
@@ -40,6 +45,9 @@ export const sendCommand: CommandSpec = {
     if (message.subject === undefined || message.subject.trim() === '') {
       throw new UsageError('--subject is required.');
     }
+
+    const signature = await resolveSignature(ctx.args, ctx.env);
+    signMessage(message, signature, ctx.args);
 
     const payload = {
       message,
@@ -64,6 +72,7 @@ export const sendCommand: CommandSpec = {
         to: message.toRecipients.map((r) => r.emailAddress.address),
         attachments: message.attachments?.length ?? 0,
         savedToSentItems: payload.saveToSentItems,
+        signatureApplied: signature !== undefined,
       },
       () => `Sent "${message.subject}" to ${to}`,
     );
