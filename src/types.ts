@@ -233,4 +233,5 @@ export const DEFAULT_SCOPES = [
   'MailboxSettings.ReadWrite',
   'Contacts.Read',
   'Contacts.ReadWrite',
+  'Calendars.Read',
 ] as const;
