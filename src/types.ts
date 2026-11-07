@@ -262,6 +262,12 @@ export const DEFAULT_SCOPES = [
   'Mail.Send',
   'MailboxSettings.ReadWrite',
   'Contacts.Read',
+  // Local R360 install: scopes with org-wide admin consent that Hermes workflows rely on
+  // (contact import, calendar reads, SharePoint bios). Not upstream.
+  'Contacts.ReadWrite',
+  'Calendars.Read',
+  'Files.Read.All',
+  'Sites.Read.All',
 ] as const;
 
 /**

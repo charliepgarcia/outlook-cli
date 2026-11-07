@@ -72,7 +72,7 @@ describe('createAuthenticator — read-only grant mode', () => {
   // DEFAULT_SCOPES/READONLY_SCOPES must FAIL here rather than be followed.
   // MailboxSettings.ReadWrite: `rules create` writes inbox rules.
   // Contacts.Read: the `contacts` command (read-only).
-  const FULL_SCOPE_SET = ['offline_access', 'User.Read', 'Mail.ReadWrite', 'Mail.Send', 'MailboxSettings.ReadWrite', 'Contacts.Read'];
+  const FULL_SCOPE_SET = ['offline_access', 'User.Read', 'Mail.ReadWrite', 'Mail.Send', 'MailboxSettings.ReadWrite', 'Contacts.Read', 'Contacts.ReadWrite', 'Calendars.Read', 'Files.Read.All', 'Sites.Read.All'];
   const READONLY_SCOPE_SET = ['offline_access', 'User.Read', 'Mail.Read', 'MailboxSettings.Read'];
 
   let dir: string;
